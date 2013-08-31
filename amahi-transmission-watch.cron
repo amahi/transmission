@@ -1,0 +1,2 @@
+# watch for torrent files in the torrents directory
+*/5 * * * *	transmission	if [ "`netstat -an | grep :9091 | wc -l`" != "0" ]; then transmission-remote localhost:9091 -a /var/hda/files/torrents/*.torrent && rm -f /var/hda/files/torrents/*.torrent; fi

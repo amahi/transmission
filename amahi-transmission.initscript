@@ -1,0 +1,117 @@
+#! /bin/sh
+#
+# amahi-transmission:       Starts the Transmission Daemon
+#
+# chkconfig: 345 96 02
+# description: This is a daemon which runs on the server to download \
+#        torrents
+#
+# processname: transmission-daemon
+# config: 
+
+# Source function library.
+. /etc/init.d/functions
+. /etc/sysconfig/network
+
+TRANSMISSION_BIN=/usr/bin/transmission-daemon
+TRANSMISSION_DIR=/var/hda/files/torrents
+
+DAEMON=transmission-daemon
+
+if [ "$1" == 'status' ]; then
+    test -x $TRANSMISSION_BIN || exit 4
+else 
+    test -x $TRANSMISSION_BIN || exit 5
+fi
+
+LOCKFILE=/var/lock/subsys/transmission-daemon
+PIDFILE=/var/run/amahi-transmission.pid
+
+base=${0##*/}
+
+start() {
+    # Check that networking is configured.
+    [ ${NETWORKING} = "no" ] && exit 1
+
+    if [[ ! -e $TRANSMISSION_DIR ]]; then
+        mkdir -p $TRANSMISSION_DIR
+        chown transmission:users $TRANSMISSION_DIR
+        chmod 775 $TRANSMISSION_DIR
+    fi
+    if [ "`ls -l $TRANSMISSION_DIR | grep apache | wc -l`" != "0" ]; then
+        chown -R transmission:users $TRANSMISSION_DIR
+        chmod 775 $TRANSMISSION_DIR
+    fi
+    if [ -x /var/lib/transmission/.config/transmission-daemon/blocklists/ ]; then
+        cd /var/lib/transmission/.config/transmission-daemon/blocklists/
+        wget -q -O level1.gz http://update.transmissionbt.com/level1.gz
+        rm -f level1 && gunzip level1.gz
+        chown transmission:transmission level1
+    fi
+    if [ -x /var/lib/transmission/.config/transmission-daemon/settings.json.bak ]; then
+        if [ ! -x /var/lib/transmission/.config/transmission-daemon/settings.json ]; then
+            cp /var/lib/transmission/.config/transmission-daemon/settings.json.bak /var/lib/transmission/.config/transmission-daemon/settings.json
+        fi
+        if [ `du -b /var/lib/transmission/.config/transmission-daemon/settings.json` -lt 20 ]; then
+            cp /var/lib/transmission/.config/transmission-daemon/settings.json.bak /var/lib/transmission/.config/transmission-daemon/settings.json
+        fi
+    fi
+    sed --in-place=.bak -e 's/"blocklist-enabled": false/"blocklist-enabled": true/' /var/lib/transmission/.config/transmission-daemon/settings.json
+    sed --in-place=.bak -e 's/"umask": .*,/"umask": 0,/' /var/lib/transmission/.config/transmission-daemon/settings.json
+
+    echo -n $"Starting Transmission daemon... "
+    daemon --user transmission $TRANSMISSION_BIN -w $TRANSMISSION_DIR
+    RETVAL=$?
+    if [ $RETVAL = 0 ]; then
+        touch $LOCKFILE
+	pidof $DAEMON > $PIDFILE
+        success $"$base startup"
+    else
+        failure $"$base startup"
+    fi
+    echo
+    return $RETVAL
+}
+
+stop() {
+        echo -n $"Shutting down Transmission daemon: "
+        killproc $DAEMON
+    RETVAL=$?
+    [ $RETVAL = 0 ] && success $"$base shutdown" || failure $"$base shutdown"
+    rm -f $LOCKFILE $PIDFILE
+    echo
+    return $RETVAL
+}
+
+restart() {
+    stop
+    start
+}
+
+RETVAL=0
+
+# See how we were called.
+case "$1" in
+  start)
+    start
+    ;;
+  stop)
+    stop
+    ;;
+  status)
+    status $DAEMON
+    RETVAL=$?
+    ;;
+  restart)
+    restart
+    ;;
+  condrestart)
+    [ ! -f $lockfile ] || restart
+    ;;
+  *)
+    echo $"Usage: $0 {start|stop|status|restart}"
+    exit 2
+        ;;
+esac
+
+exit $RETVAL
